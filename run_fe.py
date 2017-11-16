@@ -6,15 +6,25 @@ import numpy as np
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Read, parse and run FE on csv file")
-    parser.add_argument(dest="csvFile",    help="Path of .csv file")
+    parser.add_argument(dest="trainFile",  help="Path of .csv file to calc stats")
+    parser.add_argument(dest="predictFile",  help="Path of .csv file to run predictions")
     args = parser.parse_args()
-    theCsv = csv.DictReader(open(args.csvFile, 'r'))
 
-    fex = FeatureExtractor()
-    cols,dataMtrx, allCols,allMtrx = fex.RunFeatureExtractor(theCsv)
-    normMtrx, avgs, stds = fex.RunNormalizer()
-    ratios, totalCount, sumClass, globalAvg = fex.RunBinaryStats()
-    scoredLoans = fex.ScoreLoans(gradeMin='B4', gradeMax='E1')
+    trainCsv = csv.DictReader(open(args.trainFile, 'r'))
+    fexTrain = FeatureExtractor()
+    fexTrain.RunFeatureExtractor(trainCsv, context='train')
+    cols, dataMtrx = fexTrain.GetFexMatrix()
+    allCols, allMtrx = fexTrain.GetAllDataListOfLists()
+    avgs, stds, boolList = fexTrain.GetColumnStats()
+    ratios, totalCount, sumClass, globalAvg = fexTrain.RunBinaryStats()
+    scoredLoans = fexTrain.ScoreLoans(gradeMin='B4', gradeMax='E1')
+
+    """
+    predictCsv = csv.DictReader(open(args.predictFile, 'r'))
+    fexPredict = FeatureExtractor()
+    fexPredict.RunFeatureExtractor(predictCsv)
+    # fexPredict now has a an allDataMtrx that we score using fexTrain
+    scoredLoans = fexTrain.ScoreLoans(fexPredict.allDataMtrx, gradeMin='B4', gradeMax='E1', outFile='predict_scores.csv')
 
     print '*'*100
     print 'Example Features:'
@@ -25,18 +35,13 @@ if __name__ == '__main__':
     print 'Example ALL Data:'
     for k,v in zip(allCols,allMtrx[0][:]):
         print ' ', k.ljust(30), v
-
-    print '*'*100
-    print 'Example NORMALIZED Data:'
-    for k,v in zip(allCols, normMtrx[0][:]):
-        print ' ', k.ljust(30), v
+    """
 
     ccoef = np.corrcoef(dataMtrx.T)
     
     with open('corrcoef.csv','w') as f:
         def WRITE(*args):
             f.write(', '.join(args) + '\n') 
-            print ', '.join(args)
 
         WRITE(' '*40, ',', ', '.join(cols))
         for i,row in enumerate(ccoef):
@@ -56,10 +61,11 @@ if __name__ == '__main__':
     with open('scoredLoans.csv', 'w') as f:
         def WRITE(s):
             f.write(s + '\n')
-        cols = ['SCORE']
+        cols = ['SCORE', 'CumulAvgInterest']
         cols.extend(allCols)
         WRITE(','.join(cols))
         for row in scoredLoans:
             WRITE(','.join([str(v) for v in row]))
+
 
 
