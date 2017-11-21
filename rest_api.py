@@ -4,6 +4,186 @@ import json
 import requests
 from pprint import pprint
 
+MAP_NOTE_VAR_TO_HISTORICAL_DATA = \
+{
+    # ''    means pass through
+    # '___' means to split by uppercase, join with _, lowercase
+    # None  means don't transfer
+    # Anything else is a direct mapping of note vars to hist vars
+
+    "id":                               '',
+    "memberId":                         '',
+    "loanAmount":                       'loan_amnt',
+    "fundedAmount":                     'funded_amnt',
+    "term":                             '',
+    "intRate":                          '___',
+    "expDefaultRate":                   '',
+    "serviceFeeRate":                   '',
+    "installment":                      '',
+    "grade":                            '',
+    "subGrade":                         '___',
+    "empLength":                        '___',
+    "homeOwnership":                    '___',
+    "annualInc":                        '___',
+    "isIncV":                           'verification_status',
+    "acceptD":                          None,
+    "expD":                             None,
+    "listD":                            None,
+    "creditPullD":                      'last_credit_pull_d',
+    "reviewStatusD":                    None,
+    "reviewStatus":                     None,
+    "desc":                             '',
+    "purpose":                          '',
+    "addrZip":                          'zip_code',
+    "addrState":                        '___',
+    "investorCount":                    None,
+    "ilsExpD":                          '___',
+    "initialListStatus":                '___',
+    "empTitle":                         '___',
+    "accNowDelinq":                     '___',
+    "accOpenPast24Mths":                'acc_open_past_24mths',
+    "bcOpenToBuy":                      '___',
+    "percentBcGt75":                    'percent_bc_gt_75',
+    "bcUtil":                           '___',
+    "dti":                              '',
+    "delinq2Yrs":                       'delinq_2yrs',
+    "delinqAmnt":                       '___',
+    "earliestCrLine":                   '___',
+    "ficoRangeLow":                     '___',
+    "ficoRangeHigh":                    '___',
+    "inqLast6Mths":                     'inq_last_6mths',
+    "mthsSinceLastDelinq":              '___',
+    "mthsSinceLastRecord":              '___',
+    "mthsSinceRecentInq":               '___',
+    "mthsSinceRecentRevolDelinq":       '___',
+    "mthsSinceRecentBc":                '___',
+    "mortAcc":                          '',
+    "openAcc":                          '___',
+    "pubRec":                           '___',
+    "totalBalExMort":                   '___',
+    "revolBal":                         '___',
+    "revolUtil":                        '___',
+    "totalBcLimit":                     '___',
+    "totalAcc":                         '___',
+    "totalIlHighCreditLimit":           '___',
+    "numRevAccts":                      '___',
+    "mthsSinceRecentBcDlq":             '___',
+    "pubRecBankruptcies":               '___',
+    "numAcctsEver120Ppd":               'num_accts_ever_120_pd',
+    "chargeoffWithin12Mths":            'chargeoff_within_12_mths',
+    "collections12MthsExMed":           'collections_12_mths_ex_med',
+    "taxLiens":                         '___',
+    "mthsSinceLastMajorDerog":          '___',
+    "numSats":                          '___',
+    "numTlOpPast12m":                   '___',
+    "moSinRcntTl":                      '___',
+    "totHiCredLim":                     '___',
+    "totCurBal":                        '___',
+    "avgCurBal":                        '___',
+    "numBcTl":                          '___',
+    "numActvBcTl":                      '___',
+    "numBcSats":                        '___',
+    "pctTlNvrDlq":                      '___',
+    "numTl90gDpd24m":                   'num_tl_90g_dpd_24m',
+    "numTl30dpd":                       'num_tl_30dpd',
+    "numTl120dpd2m":                    'num_tl_120dpd_2m',
+    "numIlTl":                          '___',
+    "moSinOldIlAcct":                   None,
+    "numActvRevTl":                     '___',
+    "moSinOldRevTlOp":                  '___',
+    "moSinRcntRevTlOp":                 '___',
+    "totalRevHiLim":                    '___',
+    "numRevTlBalGt0":                   'num_rev_tl_bal_gt_0',
+    "numOpRevTl":                       '___',
+    "totCollAmt":                       '___',
+    "applicationType":                  '___',
+    "annualIncJoint":                   '___',
+    "dtiJoint":                         '___',
+    "isIncVJoint":                      'verification_status_joint',
+    "openAcc6m":                        'open_acc_6m',
+    "openActIl":                        None,
+    "openIl12m":                        'open_il_12m',
+    "openIl24m":                        'open_il_24m',
+    "mthsSinceRcntIl":                  '___',
+    "totalBalIl":                       '___',
+    "iLUtil":                           'il_util',
+    #"ilUtil":                           '___',
+    "openRv12m":                        'open_rv_12m',
+    "openRv24m":                        'open_rv_24m',
+    "maxBalBc":                         '___',
+    "allUtil":                          '___',
+    "inqFi":                            '___',
+    "totalCuTl":                        '___',
+    "inqLast12m":                       'inq_last_12m',
+    "mtgPayment":                       None,
+    "housingPayment":                   None,
+    "revolBalJoint":                    None,
+    #"secAppFicoRangeLow":               '___',
+    #"secAppFicoRangeHigh":              '___',
+    #"secAppEarliestCrLine":             '___',
+    #"secAppInqLast6Mths":               'sec_app_inq_last_6mths',
+    #"secAppMortAcc":                    '___',
+    #"secAppOpenAcc":                    '___',
+    #"secAppRevolUtil":                  '___',
+    #"secAppOpenActIl":                  '___',
+    #"secAppNumRevAccts":                '___',
+    #"secAppChargeoffWithin12Mths":      'sec_app_chargeoff_within_12_mths',
+    #"secAppCollections12MthsExMed":     'sec_app_collections_12_mths_ex_med',
+    #"secAppMthsSinceLastMajorDerog":    'sec_app_mths_since_last_major_derog',
+    #"disbursementMethod":               None,
+}
+
+
+def ConvertNote2HistVariables(noteMap):
+    outMap = {}
+    for noteName,histName in MAP_NOTE_VAR_TO_HISTORICAL_DATA.iteritems():
+        if histName is None:
+            continue
+
+        noteVar = noteMap.get(noteName, [None])
+        if noteVar is None:
+            noteVar = ''
+
+        noteVar = str(noteVar)
+        if noteVar == [None]:
+            print 'Warning: note does not have var: %s' % noteName
+            noteVar = ''
+
+        elif len(histName) == 0:
+            outMap[noteName] = noteVar
+
+        elif histName == '___':
+            newHistName = ''
+            for char in noteName:
+                if ord('A') <= ord(char) <= ord('Z'):
+                    newHistName += '_'+char.lower()
+                else:
+                    newHistName += char
+            outMap[newHistName] = noteVar
+        else:
+            outMap[histName] = noteVar
+
+       
+
+    # Tweaks to certain vars we know we need
+    outMap['verification_status'] = outMap['verification_status'].replace('_',' ')
+    outMap['term'] = ' %s months' % outMap['term']
+    outMap['title'] = ''
+    outMap['desc'] = '' if outMap['desc'] is None else outMap['desc']
+    outMap['revol_util'] += '%'
+    outMap['total_pymnt'] = '0'
+    outMap['url'] = 'https://www.lendingclub.com/browse/loanDetail.action?loan_id=%s' % outMap['id']
+    
+    # emp_length should be a string (hist data uses "10+ years", "n/a")
+    if len(outMap['emp_length']) == 0:
+        outMap['emp_length'] = '0'
+    else:
+        outMap['emp_length'] = str(int(int(outMap['emp_length'])/12.0 + 0.5))
+
+    return outMap
+            
+
+
 def LcApiCall(action, resource, subresource, urlExtra=None, postPayload=None):
     """
     If resource is "account", then accountId will be used as the next URL path segment
@@ -36,6 +216,15 @@ def LcApiCall(action, resource, subresource, urlExtra=None, postPayload=None):
     elif action.lower()=='post':
         return requests.post(URI, headers=headers, data=postPayload).json()
 
+def GetLoanListing(getAllAvail=False):
+    urlExtra = {'showAll':'true'} if getAllAvail else None
+    loanList = LcApiCall('GET', 'loans', 'listing', urlExtra=urlExtra)['loans']
+    return [ConvertNote2HistVariables(note) for note in loanList]
+    
 
-#pprint(LcApiCall('GET', 'loans', 'listing', urlExtra={'showAll':'true'}))
-pprint(LcApiCall('GET', 'loans', 'listing'))
+
+
+#loanList = LcApiCall('GET', 'loans', 'listing')['loans']
+#loanList = LcApiCall('GET', 'loans', 'listing', urlExtra={'showAll':'true'})
+#pprint(loanList[0])
+#pprint(ConvertNote2HistVariables(loanList[0]))

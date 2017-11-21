@@ -21,8 +21,9 @@ PURPOSES = [ \
            ]
 
 
+
 ####################################################################################################
-# A singleton class that tracks all the feature extraction methods and applies them
+#    A singleton class that tracks all the feature extraction methods and applies them
 ####################################################################################################
 class FeatureExtractor(object):
     FeatureList = []
@@ -52,24 +53,35 @@ class FeatureExtractor(object):
         self.stdVec = []
         self.binaryList = []
 
-    def RunFeatureExtractor_Single(self, row, context='train'):
+    def RunFeatureExtractor_Single(self, row, context):
 
         if context.lower() == 'train':
             if not row['loan_status'].lower() in ['fully paid', 'charged off']:
                 return
 
         # This checks all the filters in order, skipping this row if any fail
+        #if context=='predict':
+            #print '-'*80
+            #for k,v in row.iteritems():
+                #print '  ', k.ljust(40), v
+
+        #print ''
         for fn in FeatureExtractor.FilterList:
+            #print fn.__name__,
             if not fn(row):
                 return
 
         # Run all the fex functions 
         nList,vList = [],[]
         nList.append('_CLASS_')
-        vList.append(ClassificationFunc(row))
+        if context=='train':
+            vList.append(ClassificationFunc(row))
+        else:
+            vList.append(-1)
+
         for func,names in FeatureExtractor.FeatureList:
             nList.extend(names)
-            vList.extend(func(row))
+            vList.extend([float(v) for v in func(row)])
 
 
         self.numFeatures = len(vList)
@@ -96,7 +108,7 @@ class FeatureExtractor(object):
         self.numRows += 1
 
 
-    def RunFeatureExtractor(self, rowIterator, context='train'):
+    def RunFeatureExtractor(self, rowIterator, context):
         # This returns the column headers and matrix as a numpy object for efficient calcs
         # It also returns column headers and a list-of-lists that has all the same plus extra cols
         self.fexMatrix = None
@@ -104,6 +116,11 @@ class FeatureExtractor(object):
         for i,row in enumerate(rowIterator):
             self.RunFeatureExtractor_Single(row, context=context)
 
+        # This can return an error if self.fexMatrix skipped all rowx
+        if self.fexMatrix is None:
+            print 'Error running fex-matrix:  all rows failed filters'
+            exit(1)
+            
         self.fexMatrix.resize(self.numRows, self.numFeatures)
         self.allDataMatrix = self.allDataMatrix[:self.numRows]
 
@@ -157,36 +174,40 @@ class FeatureExtractor(object):
         return ratioList, featureClassSum, featureRowCount, totalAvg
             
 
-    def ScoreLoans(self, allDataMtrx=None, gradeMin='A1', gradeMax='G5', outFile='scoredLoans.csv'):
-        if allDataMtrx is None:
-            allDataMtrx = self.allDataMatrix
+    def ScoreLoans(self, allDataMatrix=None, gradeMin='A1', gradeMax='G5', outFile='scoredLoans.csv', weightByRate=None):
+        if allDataMatrix is None:
+            allDataMatrix = self.allDataMatrix
 
         # Create a new matrix with normalized data
-        normalizedMtrx = [ [0]*len(self.allDataColNames) for i in range(self.numRows) ]
+        normalizedMtrx = [ [0]*len(self.allDataColNames) for i in range(len(allDataMatrix)) ]
 
-        for r,row in enumerate(self.allDataMatrix):
+        for r,row in enumerate(allDataMatrix):
             for c in range(len(self.allDataColNames)):
                 if c >= self.numFeatures or self.stdVec[c]==0 or self.binaryList[c]:
                     normalizedMtrx[r][c] = row[c]
                 else:
-                    normalizedMtrx[r][c] = (row[c] - self.avgVec[c]) / self.stdVec[c]
-
-
+                    normalizedMtrx[r][c] = (float(row[c]) - self.avgVec[c]) / self.stdVec[c]
     
         srules = FeatureExtractor.GetScoringRules()
-        scoreRowPairs = []
-        colIndices = [self.allDataColNames.index(k) for k in srules.keys()]
+        scoreRowWgtList = []
+        sortedRulesKeys = sorted(srules.keys())
+        colIndices = [self.allDataColNames.index(k) for k in sortedRulesKeys]
+
 
         gradeCol = self.allDataColNames.index('GradeFloat')
         irateCol = self.allDataColNames.index('IntRate')
         approxIntCol = self.allDataColNames.index('ApproxIntRate')
+
         for r,row in enumerate(normalizedMtrx):
-            rowGradeVal = allDataMtrx[r][gradeCol]
+            rowGradeVal = allDataMatrix[r][gradeCol]
             if not (GRADE2VALUE(gradeMin) <= rowGradeVal <= GRADE2VALUE(gradeMax)):
                 continue
 
             score = 0
-            for c,col in enumerate(srules.keys()):
+            weights = []
+            #print ''
+            for c,col in enumerate(sortedRulesKeys):
+                #print c,col,colIndices[c],row[colIndices[c]],'|'
                 func = srules[col]
                 scoreMod = func(row[colIndices[c]])
                 if scoreMod is None:
@@ -194,23 +215,35 @@ class FeatureExtractor(object):
 
                 # Passing a Requires method returns 0 so does not affect score
                 score += scoreMod
+                weights.append(scoreMod)
+                
             else:
                 # This runs if the row didn't fail any requirements, row and score should be added
                 if score > 0:
-                    #score = score * (0.5 + allDataMtrx[r][irateCol])
-                    scoreRowPairs.append( (score, r) )
+                    if weightByRate is not None:
+                        # Use a non-None float value, usually 0.5 or 1.0 for weightByRate 
+                        score = score * (weightByRate + allDataMatrix[r][irateCol])
+                    scoreRowWgtList.append( (score, r, weights) )
                  
             
         with open(outFile, 'w') as f:
+            cols = ['SCORE', 'CumulAvgInterest']
+            cols.extend(self.allDataColNames)
+            cols.extend(['WEIGHT_' + k for k in sortedRulesKeys])
+            
+            f.write(','.join(cols) + '\n')
             outMatrix = []
             rowCount,sumEffInt = 0,0
-            for score,rowNum in sorted(scoreRowPairs, reverse=True):
+            for score,rowNum,wgts in sorted(scoreRowWgtList, reverse=True):
                 rowCount += 1
-                sumEffInt += allDataMtrx[rowNum][approxIntCol]
+                sumEffInt += allDataMatrix[rowNum][approxIntCol]
                 intStr = '%0.3f' % (sumEffInt/float(rowCount))
+            
                 if rowCount > 0 and rowCount%100==0:
-                    print 'Cumulative (Approx) Interest for first %d loans: %s' % (rowCount, intStr)
-                outMatrix.append([score, intStr] + allDataMtrx[rowNum][:])
+                    print 'Cumulative ROI for first %d loans: %s (score thresh: %0.1f)' % \
+                                                                     (rowCount, intStr, score)
+                outMatrix.append([score, intStr] + allDataMatrix[rowNum][:] + wgts)
+                f.write(','.join([str(v) for v in outMatrix[-1][:]]) + '\n')
                 if len(outMatrix) > 501:
                     break
 
@@ -235,16 +268,16 @@ class FeatureExtractor(object):
             elif stdev > -high: return -0.6
             else:               return -1.0
             
-        GoodFeatureFloat = lambda weight: (lambda val: normalizeStdev(val) * weight)
-        BadFeatureFloat  = lambda weight: (lambda val: normalizeStdev(val) * weight * -1)
-        GoodFeatureBool  = lambda weight: (lambda val:  weight if val==1 else 0)
-        BadFeatureBool   = lambda weight: (lambda val: -weight if val==1 else 0)
+        HigherIsBetter  = lambda weight: (lambda val: normalizeStdev(val) * weight)
+        LowerIsBetter   = lambda weight: (lambda val: normalizeStdev(val) * weight * -1)
+        PreferTrue      = lambda weight: (lambda val:  weight if val==1 else 0)
+        PreferFalse     = lambda weight: (lambda val: -weight if val==1 else 0)
         
         # Calling method should omit if none
-        RequireTrue      = lambda: (lambda val: None if not val else 0)
-        RequireFalse     = lambda: (lambda val: None if val else 0)
-        RequirePosStdev  = lambda stdev: (lambda val: None if val < stdev else 0)
-        RequireNegStdev  = lambda stdev: (lambda val: None if val > -stdev else 0)
+        RequireTrue     = lambda: (lambda val: None if not val else 0)
+        RequireFalse    = lambda: (lambda val: None if val else 0)
+        RequirePosStdev = lambda stdev: (lambda val: None if val < stdev else 0)
+        RequireNegStdev = lambda stdev: (lambda val: None if val > -stdev else 0)
         
         ScoringRules = \
         {
@@ -256,17 +289,19 @@ class FeatureExtractor(object):
             'HomeOwn_other':             RequireFalse(),
 
             # These are weight adjustment rules
-            'EmployeeTech':              GoodFeatureBool(  weight=10 ),
-            'Purpose_credit_card':       GoodFeatureBool(  weight=10 ),
-            'Purpose_major_purchase':    GoodFeatureBool(  weight=6 ),
-            'MonthlyIncome2Pmt':         GoodFeatureFloat( weight=6 ),
-            'dti':                       BadFeatureFloat(  weight=6 ),
-            'acc_open_past_24mths':      BadFeatureFloat(  weight=6 ),
-            'HomeOwn_mortgage':          GoodFeatureBool(  weight=5 ),
-            'EmployeeLeader':            GoodFeatureBool(  weight=3 ),
-            'OldestCreditYrs':           GoodFeatureFloat( weight=3 ),
-            'LastDelinqAgo':             BadFeatureFloat(  weight=3 ),
-            'num_sats':                  BadFeatureFloat(  weight=2 ),
+            'EmployeeTech':              PreferTrue(     weight=10 ),
+            'Purpose_credit_card':       PreferTrue(     weight=10 ),
+            'Purpose_major_purchase':    PreferTrue(     weight=6  ),
+            'MonthlyIncome2Pmt':         HigherIsBetter( weight=6  ),
+            'dti':                       LowerIsBetter(  weight=6  ),
+            'acc_open_past_24mths':      LowerIsBetter(  weight=6  ),
+            'inq_last_6mths':            LowerIsBetter(  weight=6  ),
+            'HomeOwn_mortgage':          PreferTrue(     weight=5  ),
+            'EmployeeLeader':            PreferTrue(     weight=3  ),
+            'OldestCreditYrs':           HigherIsBetter( weight=3  ),
+            'LastDelinqAgo':             LowerIsBetter(  weight=3  ),
+            'num_sats':                  LowerIsBetter(  weight=2  ),
+            # This rule significantly reduced performance on test set... may be a fluke?
         }
 
         return ScoringRules
@@ -361,7 +396,7 @@ def filter_term36_only(row):
 
 @FilterMethod
 def filter_grade_b2d_only(row):
-    return GRADE2VALUE('D1') <= GRADE2VALUE(row['sub_grade']) < GRADE2VALUE('F')
+    return GRADE2VALUE('B1') <= GRADE2VALUE(row['sub_grade']) < GRADE2VALUE('F')
 
 @FilterMethod
 def filter_annual_inc_gt_40k(row):
@@ -370,7 +405,7 @@ def filter_annual_inc_gt_40k(row):
 @FilterMethod
 def filter_nonempty_vars(row):
     for i,c in enumerate(passthruFields):
-        if len(row[c].strip()) == 0:
+        if len(str(row[c]).strip()) == 0:
             return False
     else:
         return True
@@ -393,18 +428,21 @@ def fex_lc_grade_float(row):
 
 @FexMethod('IntRate')
 def fex_intrate(row):
-    return float(row['int_rate'].rstrip('%'))/100.0
+    if isinstance(row['int_rate'], float):
+        return row['int_rate']
+    else:
+        return float(row['int_rate'].rstrip('%'))/100.0
 
 # This is all fields in the spreadsheet that we want to analyze and require no manipulation
 @FexMethod(*passthruFields)
 def fex_allpassthru(row):
-    return [float(row[n].strip()) for n in passthruFields]
+    return [float(row[n]) for n in passthruFields]
 
 @FexMethod('MonthlyIncome2Pmt')
 def fex_install_per_income(row):
     moPayment = float(row['installment'])
     moIncome  = float(row['annual_inc'])/12
-    return moIncome/moPayment
+    return min(moIncome/moPayment, 50)
 
 @FexMethod(*['HomeOwn_'+t for t in HOME_OWNERSHIPS])
 def fex_home(row):
@@ -416,9 +454,9 @@ def fexmulti_purpose(row):
 
 @FexMethod('OldestCreditYrs')
 def fex_oldest_credit_line(row):
-    dtOrig = dateParser.parse(row['earliest_cr_line'])
-    dtNow  = datetime.now()
-    return (dtNow - dtOrig).days / 365.
+    dtOrig = dateParser.parse(row['earliest_cr_line']).replace(tzinfo=None)
+    dtNow  = datetime.now().replace(tzinfo=None)
+    return min((dtNow - dtOrig).days / 365.0, 20)
 
 @FexMethod('VerifyStatus')
 def fex_verify_stat(row):
@@ -434,11 +472,14 @@ def fex_verify_stat(row):
 
 @FexMethod('RevolvUtil')
 def fex_revolveutil(row):
-    return float(row['revol_util'].rstrip('%')) / 100.
+    if isinstance(row['revol_util'], float):
+        return row['revol_util']
+    else:
+        return float(row['revol_util'].rstrip('%')) / 100.
 
 @FexMethod('Revolv2Income')
 def fex_openaccts(row):
-    revBal = float(row['revol_bal'].rstrip('%')) / 100.
+    revBal = float(row['revol_bal'])
     annualInc = float(row['annual_inc'])
     return revBal/annualInc
 

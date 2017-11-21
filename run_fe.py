@@ -2,12 +2,13 @@
 import argparse
 import csv
 from fe import FeatureExtractor, ClassificationFunc
+from rest_api import LcApiCall, GetLoanListing
 import numpy as np
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Read, parse and run FE on csv file")
     parser.add_argument(dest="trainFile",  help="Path of .csv file to calc stats")
-    parser.add_argument(dest="predictFile",  help="Path of .csv file to run predictions")
+    #parser.add_argument(dest="predictFile",  help="Path of .csv file to run predictions")
     args = parser.parse_args()
 
     trainCsv = csv.DictReader(open(args.trainFile, 'r'))
@@ -17,15 +18,16 @@ if __name__ == '__main__':
     allCols, allMtrx = fexTrain.GetAllDataListOfLists()
     avgs, stds, boolList = fexTrain.GetColumnStats()
     ratios, totalCount, sumClass, globalAvg = fexTrain.RunBinaryStats()
-    scoredLoans = fexTrain.ScoreLoans(gradeMin='B4', gradeMax='E1')
+    scoredLoans = fexTrain.ScoreLoans(gradeMin='C3')
+
+    allLoans = GetLoanListing(getAllAvail=True)
+    #predictCsv = csv.DictReader(open(args.predictFile, 'r'))
+    fexPredict = FeatureExtractor()
+    fexPredict.RunFeatureExtractor(allLoans, context='predict')
+    # fexPredict now has a an allDataMtrx that we score using fexTrain
+    scoredLoans = fexTrain.ScoreLoans(fexPredict.allDataMatrix, outFile='predict_scores.csv', gradeMin='C3')
 
     """
-    predictCsv = csv.DictReader(open(args.predictFile, 'r'))
-    fexPredict = FeatureExtractor()
-    fexPredict.RunFeatureExtractor(predictCsv)
-    # fexPredict now has a an allDataMtrx that we score using fexTrain
-    scoredLoans = fexTrain.ScoreLoans(fexPredict.allDataMtrx, gradeMin='B4', gradeMax='E1', outFile='predict_scores.csv')
-
     print '*'*100
     print 'Example Features:'
     for k,v in zip(cols,dataMtrx[0,:]):
@@ -58,14 +60,6 @@ if __name__ == '__main__':
         WRITE('')
         WRITE('GlobalAvg,%0.3f' % globalAvg)
 
-    with open('scoredLoans.csv', 'w') as f:
-        def WRITE(s):
-            f.write(s + '\n')
-        cols = ['SCORE', 'CumulAvgInterest']
-        cols.extend(allCols)
-        WRITE(','.join(cols))
-        for row in scoredLoans:
-            WRITE(','.join([str(v) for v in row]))
 
 
 
