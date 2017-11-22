@@ -221,6 +221,10 @@ def GetLoanListing(getAllAvail=False):
     loanList = LcApiCall('GET', 'loans', 'listing', urlExtra=urlExtra)['loans']
     return [ConvertNote2HistVariables(note) for note in loanList]
     
+def GetAlreadyInvestedIds():
+    notes = LcApiCall('get', 'accounts', 'notes')['myNotes']
+    return set([str(n['loanId']) for n in notes])
+
 
 
 
@@ -228,3 +232,4 @@ def GetLoanListing(getAllAvail=False):
 #loanList = LcApiCall('GET', 'loans', 'listing', urlExtra={'showAll':'true'})
 #pprint(loanList[0])
 #pprint(ConvertNote2HistVariables(loanList[0]))
+#pprint(LcApiCall('get', 'accounts', 'notes'))

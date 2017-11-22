@@ -2,7 +2,7 @@
 import argparse
 import csv
 from fe import FeatureExtractor, ClassificationFunc
-from rest_api import LcApiCall, GetLoanListing
+from rest_api import LcApiCall, GetLoanListing, GetAlreadyInvestedIds
 import numpy as np
 
 if __name__ == '__main__':
@@ -18,15 +18,33 @@ if __name__ == '__main__':
     allCols, allMtrx = fexTrain.GetAllDataListOfLists()
     avgs, stds, boolList = fexTrain.GetColumnStats()
     ratios, totalCount, sumClass, globalAvg = fexTrain.RunBinaryStats()
-    scoredLoans = fexTrain.ScoreLoans(gradeMin='C3')
+    scoredLoans = fexTrain.ScoreLoans(gradeMin='D1', 
+                                      gradeMax='E5')
+
+    scoredLoans = fexTrain.ScoreLoans(gradeMin='D1', 
+                                      gradeMax='E5', 
+                                      doRandom=True, 
+                                      outFile='randomized.csv')
 
     allLoans = GetLoanListing(getAllAvail=True)
-    #predictCsv = csv.DictReader(open(args.predictFile, 'r'))
+    alreadyInvested = GetAlreadyInvestedIds()
     fexPredict = FeatureExtractor()
     fexPredict.RunFeatureExtractor(allLoans, context='predict')
+    scoredLoans = fexTrain.ScoreLoans(fexPredict.allDataMatrix, 
+                                      outFile='predict_scores.csv', 
+                                      gradeMin='C4',
+                                      alreadySet=alreadyInvested)
+    """
+    #allLoans = GetLoanListing(getAllAvail=True)
+    predictCsv = csv.DictReader(open(args.predictFile, 'r'))
+    fexPredict = FeatureExtractor()
+    fexPredict.RunFeatureExtractor(predictCsv, context='predict')
     # fexPredict now has a an allDataMtrx that we score using fexTrain
-    scoredLoans = fexTrain.ScoreLoans(fexPredict.allDataMatrix, outFile='predict_scores.csv', gradeMin='C3')
+    scoredLoans = fexTrain.ScoreLoans(fexPredict.allDataMatrix, 
+                                      outFile='predict_scores.csv', 
+                                      gradeMin='D1')
 
+    """
     """
     print '*'*100
     print 'Example Features:'

@@ -1,8 +1,10 @@
 #! /usr/bin/python
 import csv
+import math
 from datetime import datetime
 from dateutil import parser as dateParser
 import os
+import hashlib
 import numpy as np
 
 HOME_OWNERSHIPS = [ \
@@ -174,7 +176,17 @@ class FeatureExtractor(object):
         return ratioList, featureClassSum, featureRowCount, totalAvg
             
 
-    def ScoreLoans(self, allDataMatrix=None, gradeMin='A1', gradeMax='G5', outFile='scoredLoans.csv', weightByRate=None):
+    def ScoreLoans(self, allDataMatrix=None, 
+                         gradeMin='A1', 
+                         gradeMax='G5', 
+                         outFile='scoredLoans.csv', 
+                         weightByRate=None,
+                         doRandom=False,
+                         alreadySet=None):
+
+        if alreadySet is None:
+            alreadySet = set([])
+
         if allDataMatrix is None:
             allDataMatrix = self.allDataMatrix
 
@@ -197,6 +209,7 @@ class FeatureExtractor(object):
         gradeCol = self.allDataColNames.index('GradeFloat')
         irateCol = self.allDataColNames.index('IntRate')
         approxIntCol = self.allDataColNames.index('ApproxIntRate')
+        loanIdCol = self.allDataColNames.index('id')
 
         for r,row in enumerate(normalizedMtrx):
             rowGradeVal = allDataMatrix[r][gradeCol]
@@ -206,6 +219,13 @@ class FeatureExtractor(object):
             score = 0
             weights = []
             #print ''
+            if doRandom:
+                loadId = allDataMatrix[r][loanIdCol]
+                last3 = [ord(c) for c in hashlib.sha256(str(loadId)).digest()[-3:]]
+                scoreRowWgtList.append( (last3[0]*256*256 + last3[1]*256 + last3[0], r, [0]) )
+                continue
+
+
             for c,col in enumerate(sortedRulesKeys):
                 #print c,col,colIndices[c],row[colIndices[c]],'|'
                 func = srules[col]
@@ -226,10 +246,17 @@ class FeatureExtractor(object):
                     scoreRowWgtList.append( (score, r, weights) )
                  
             
+        print '-'*80
+        if doRandom:
+            print 'Performance over randomized set'
+        else:
+            print 'Performance over data set'
+
         with open(outFile, 'w') as f:
-            cols = ['SCORE', 'CumulAvgInterest']
+            cols = ['SCORE', 'CumulAvgInterest','Dup']
             cols.extend(self.allDataColNames)
             cols.extend(['WEIGHT_' + k for k in sortedRulesKeys])
+            
             
             f.write(','.join(cols) + '\n')
             outMatrix = []
@@ -238,11 +265,12 @@ class FeatureExtractor(object):
                 rowCount += 1
                 sumEffInt += allDataMatrix[rowNum][approxIntCol]
                 intStr = '%0.3f' % (sumEffInt/float(rowCount))
+                dupStr = '*' if str(allDataMatrix[rowNum][loanIdCol]) in alreadySet else ''
             
                 if rowCount > 0 and rowCount%100==0:
                     print 'Cumulative ROI for first %d loans: %s (score thresh: %0.1f)' % \
                                                                      (rowCount, intStr, score)
-                outMatrix.append([score, intStr] + allDataMatrix[rowNum][:] + wgts)
+                outMatrix.append([score, intStr, dupStr] + allDataMatrix[rowNum][:] + wgts)
                 f.write(','.join([str(v) for v in outMatrix[-1][:]]) + '\n')
                 if len(outMatrix) > 501:
                     break
@@ -251,11 +279,11 @@ class FeatureExtractor(object):
                 
         
 
-    ####################################################################################################
-    ####################################################################################################
+    ###############################################################################################
+    ###############################################################################################
     # SCORING FUNCTION
-    ####################################################################################################
-    ####################################################################################################
+    ###############################################################################################
+    ###############################################################################################
     @staticmethod
     def GetScoringRules():
     
@@ -291,17 +319,29 @@ class FeatureExtractor(object):
             # These are weight adjustment rules
             'EmployeeTech':              PreferTrue(     weight=10 ),
             'Purpose_credit_card':       PreferTrue(     weight=10 ),
+            'LogMonthlyIncome':          HigherIsBetter( weight=10 ),
             'Purpose_major_purchase':    PreferTrue(     weight=6  ),
             'MonthlyIncome2Pmt':         HigherIsBetter( weight=6  ),
             'dti':                       LowerIsBetter(  weight=6  ),
-            'acc_open_past_24mths':      LowerIsBetter(  weight=6  ),
             'inq_last_6mths':            LowerIsBetter(  weight=6  ),
             'HomeOwn_mortgage':          PreferTrue(     weight=5  ),
             'EmployeeLeader':            PreferTrue(     weight=3  ),
             'OldestCreditYrs':           HigherIsBetter( weight=3  ),
             'LastDelinqAgo':             LowerIsBetter(  weight=3  ),
-            'num_sats':                  LowerIsBetter(  weight=2  ),
-            # This rule significantly reduced performance on test set... may be a fluke?
+
+            # The weighting is lower for each of these, knowing they will stack (for instance,
+            # if numAccts is 1 it will get a pos score <2, <3, etc.  Somehow, our tet data
+            # indicates almost exactly .6% default rate reduced for every acct<6
+            'NumAccounts_lt_1':          PreferTrue(  weight=1  ),
+            'NumAccounts_lt_2':          PreferTrue(  weight=2  ),
+            'NumAccounts_lt_3':          PreferTrue(  weight=2  ),
+            'NumAccounts_lt_4':          PreferTrue(  weight=2  ),
+            'NumAccounts_lt_5':          PreferTrue(  weight=1  ),
+            'NumAccounts_lt_6':          PreferTrue(  weight=1  ),
+
+            # Smae store for num inquiries.  Almost 0.7% reduced rate below 2 
+            'NumInquiries_lt_1':         PreferTrue(  weight=1.5  ),
+            'NumInquiries_lt_2':         PreferTrue(  weight=1.5  ),
         }
 
         return ScoringRules
@@ -444,6 +484,10 @@ def fex_install_per_income(row):
     moIncome  = float(row['annual_inc'])/12
     return min(moIncome/moPayment, 50)
 
+@FexMethod('LogMonthlyIncome')
+def fex_log_income(row):
+    return math.log(float(row['annual_inc']))
+
 @FexMethod(*['HomeOwn_'+t for t in HOME_OWNERSHIPS])
 def fex_home(row):
     return BitListFromSet(row['home_ownership'], HOME_OWNERSHIPS)
@@ -511,7 +555,6 @@ def fex_buyerdescription_nonzero(row):
         else:
             desc = pcs[1][:-8]
         
-
     # Kind of a logarithmic func...
     l = len(desc)
     if l == 0:    return 0
@@ -524,34 +567,31 @@ def fex_buyerdescription_nonzero(row):
     else:         return 8
     return len(desc)
 
-@FexMethod('EmployeeLeader')
-def fex_like_mgr_empl(row):
-    posList = ['supervisor','manager','vp', 'admin', 'senior', 'officer', 'lead', 'director', 'president']
-    return any([pos in row['emp_title'].lower() for pos in posList])
+@FexMethod('EmployeeTech', 'EmployeeLeader', 'EmployeeMedical')
+def fex_employee_keywords(row):
+    """
+    This is a little weird because I don't want someone who has multiple keywords to get too much
+    credit for these features.  So I sort by the ones that are most important, only return one
+    """
+    out = [False, False, False]
+    
+    techList = ['engineer', 'tech', 'info', 'analyst', 'programmer', 'system', 'project', 'web', 'devel', 'chief']
+    leadList = ['supervisor','manager','vp', 'admin', 'senior', 'officer', 'lead', 'director', 'president']
+    medList = ['nurse', 'drug', 'doctor', 'resident', 'phys', 'medical', 'medicine', 'hospital', 'ologist', 'ometrist', 'registered', ' rn ']
 
-@FexMethod('EmployeeMedical')
-def fex_like_med_empl(row):
-    posList = ['nurse', 'drug', 'doctor', 'resident', 'phys', 'medical', 'medicine', 'hospital', 'ologist', 'ometrist', 'registered']
-    titleLc = row['emp_title'].lower()
-    if titleLc.startswith('rn') or titleLc.endswith(' rn'):   
-        return 1
-
-    if 'sales' in titleLc:
-        return 0
-
-    return any([pos in row['emp_title'].lower() for pos in posList])
-
-@FexMethod('EmployeeTech')
-def fex_like_tech_empl(row):
-    posList = ['engineer', 'tech', 'info', 'analyst', 'programmer', 'system', 'project', 'web', 'devel', 'chief']
     titleLc = row['emp_title'].lower()
     if titleLc.startswith('it ') or titleLc.endswith(' it'):   
-        return 1
+        out[0] = True
+    elif any([pos in titleLc for pos in techList]):
+        out[0] = True
+    elif any([pos in titleLc for pos in leadList]):
+        out[1] = True
+    elif titleLc.startswith('rn ') or titleLc.endswith(' rn'):   
+        out[2] = True
+    elif any([pos in titleLc for pos in medList]):
+        out[2] = True
 
-    if 'sales' in titleLc:
-        return 0
-
-    return any([pos in row['emp_title'].lower() for pos in posList])
+    return out
 
 @FexMethod('EmployeeOmit')
 def fex_omit_empl(row):
@@ -585,6 +625,17 @@ def fex_lastDerog(row):
     else:
         return float(val)
 
+@FexMethod(*['NumDelinq_lt_%d' % i for i in range(1,6)])
+def fex_numdelinq_binary(row):
+    return [(int(row['delinq_2yrs']) < i) for i in range(1,6)]
+
+@FexMethod(*['NumInquiries_lt_%d' % i for i in range(1,8)])
+def fex_numinq_binary(row):
+    return [(int(row['inq_last_6mths']) < i) for i in range(1,8)]
+
+@FexMethod(*['NumAccounts_lt_%d' % i for i in range(1,8)])
+def fex_numaccts_binary(row):
+    return [(int(row['acc_open_past_24mths']) < i) for i in range(1,8)]
 
 
 ####################################################################################################
