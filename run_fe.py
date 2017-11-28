@@ -1,14 +1,20 @@
 #! /usr/bin/python
 import argparse
 import csv
-from fe import FeatureExtractor, ClassificationFunc
-from rest_api import LcApiCall, GetLoanListing, GetAlreadyInvestedIds
+from fe import *
+from rest_api import *
 import numpy as np
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Read, parse and run FE on csv file")
     parser.add_argument(dest="trainFile",  help="Path of .csv file to calc stats")
-    #parser.add_argument(dest="predictFile",  help="Path of .csv file to run predictions")
+    parser.add_argument(dest="predictFile",  help="Path of .csv file to run predictions")
+    parser.add_argument('-t', '--threshold', dest='scoreThresh', type=float, default=0.0,
+                        help='Pick out notes above certain score')
+    parser.add_argument('-x', '--execute-trades', dest="executePrice", type=int,
+                        help="Purchase new notes for this price that exceed the -t threshold")
+    parser.add_argument('-p', '--portfolio', dest="addToPortfolio", 
+                        help="Add purchased notes to portfolio with this ID or name")
     args = parser.parse_args()
 
     trainCsv = csv.DictReader(open(args.trainFile, 'r'))
@@ -30,54 +36,36 @@ if __name__ == '__main__':
     alreadyInvested = GetAlreadyInvestedIds()
     fexPredict = FeatureExtractor()
     fexPredict.RunFeatureExtractor(allLoans, context='predict')
-    scoredLoans = fexTrain.ScoreLoans(fexPredict.allDataMatrix, 
-                                      outFile='predict_scores.csv', 
-                                      gradeMin='C4',
-                                      alreadySet=alreadyInvested)
-    """
-    #allLoans = GetLoanListing(getAllAvail=True)
+    colNames,scoreMtrx = fexTrain.ScoreLoans(fexPredict.allDataMatrix, 
+                                             outFile='predict_scores.csv', 
+                                             gradeMin='D1',
+                                             gradeMax='E5',
+                                             alreadySet=alreadyInvested)
+
+    # This does backtesting of the rules on an another dataset
     predictCsv = csv.DictReader(open(args.predictFile, 'r'))
     fexPredict = FeatureExtractor()
     fexPredict.RunFeatureExtractor(predictCsv, context='predict')
-    # fexPredict now has a an allDataMtrx that we score using fexTrain
-    scoredLoans = fexTrain.ScoreLoans(fexPredict.allDataMatrix, 
-                                      outFile='predict_scores.csv', 
-                                      gradeMin='D1')
+    backtest = fexTrain.ScoreLoans(fexPredict.allDataMatrix, 
+                                   outFile='backtest_scores.csv', 
+                                   gradeMin='E1')
 
-    """
-    """
-    print '*'*100
-    print 'Example Features:'
-    for k,v in zip(cols,dataMtrx[0,:]):
-        print ' ', k.ljust(30), v
+    testRandom = fexTrain.ScoreLoans(fexPredict.allDataMatrix, 
+                                     gradeMin='D1', 
+                                     gradeMax='E5', 
+                                     doRandom=True, 
+                                     outFile='randomized_backtest.csv')
 
-    print '*'*100
-    print 'Example ALL Data:'
-    for k,v in zip(allCols,allMtrx[0][:]):
-        print ' ', k.ljust(30), v
-    """
+    if args.executePrice is None:
+        doExec = False
+        execPrice = 0
+    else:
+        doExec = True
+        execPrice = args.executePrice
 
-    ccoef = np.corrcoef(dataMtrx.T)
-    
-    with open('corrcoef.csv','w') as f:
-        def WRITE(*args):
-            f.write(', '.join(args) + '\n') 
+    if not execPrice % 25 == 0:
+        raise Exception('Note investment price must be a multiple of $25')
 
-        WRITE(' '*40, ',', ', '.join(cols))
-        for i,row in enumerate(ccoef):
-            WRITE(cols[i].ljust(40), ',', ', '.join(['%0.3f'%v for v in row]))
+    idList = GetNewLoanIdsAboveThresh(colNames, scoreMtrx, args.scoreThresh)
 
-        WRITE('')
-
-        WRITE('AVG,,'.ljust(40), ', '.join(['%0.3f'%v for v in avgs]))
-        WRITE('STDEV,,'.ljust(40), ', '.join(['%0.3f'%v for v in stds]))
-
-        WRITE('ClassRatio,,'.ljust(40), ', '.join(['%0.3f'%v for v in ratios]))
-        WRITE('ClassSum,,'.ljust(40), ', '.join(['%0.3f'%v for v in totalCount]))
-        WRITE('TotalSum,,'.ljust(40), ', '.join(['%0.3f'%v for v in sumClass]))
-        WRITE('')
-        WRITE('GlobalAvg,%0.3f' % globalAvg)
-
-
-
-
+    CreateInvestOrderPayload([(lid, execPrice) for lid in idList], args.addToPortfolio)

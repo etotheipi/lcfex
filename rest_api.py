@@ -2,6 +2,7 @@
 import os
 import json
 import requests
+import time
 from pprint import pprint
 
 MAP_NOTE_VAR_TO_HISTORICAL_DATA = \
@@ -144,7 +145,12 @@ def ConvertNote2HistVariables(noteMap):
         if noteVar is None:
             noteVar = ''
 
-        noteVar = str(noteVar)
+        try:
+            noteVar = str(noteVar)
+        except:
+            # If the above fails, it's because of unicode problems
+            noteVar = str(unicodedata.normalize('NFKD', noteVar).encode('ascii','ignore'))
+
         if noteVar == [None]:
             print 'Warning: note does not have var: %s' % noteName
             noteVar = ''
@@ -225,6 +231,75 @@ def GetAlreadyInvestedIds():
     notes = LcApiCall('get', 'accounts', 'notes')['myNotes']
     return set([str(n['loanId']) for n in notes])
 
+def GetPortfolioIdByName(pname):
+    portfolios = LcApiCall('get', 'accounts', 'portfolios')['myPortfolios']
+    for port in portfolios:
+        if port['portfolioName'] == pname:
+            return port['portfolioId']
+    else:
+        print 'Portfolio with name "%s" does not exist' % pname
+        return None
+
+def GetNewLoanIdsAboveThresh(scoreCols, scoreMtrx, thresh):
+    idCol     = scoreCols.index('id')
+    dupCol    = scoreCols.index('Dup')
+    scoreCol  = scoreCols.index('SCORE')
+
+    idList = []
+    for scoreRow in scoreMtrx:
+        # The dup column is either '' or '*'
+        if len(scoreRow[dupCol].strip()) > 0:
+            continue 
+
+        if float(scoreRow[scoreCol]) >= thresh:
+            idList.append(scoreRow[idCol])
+
+    return idList
+
+
+def CreateInvestOrderPayload(loanIdAmtPairs, portfolioNameOrId=None, outFile=None):
+
+    if isinstance(portfolioNameOrId, basestring):
+        if not portfolioNameOrId.isdigit():
+            portfolioNameOrId = GetPortfolioIdByName
+    
+    portfolioId = portfolioNameOrId
+    investorId = json.load(open(os.path.expanduser('~/.lcapi'), 'r'))['investorId']
+    alreadyInvested = GetAlreadyInvestedIds()
+        
+    orderStruct = {'aid': investorId,
+                   'orders': [] }
+
+    for loanId,amt in loanIdAmtPairs:
+        noteOrder = { 'loanId':            loanId,
+                      'requestedAmount':   int(amt),
+                      'portfolioId':       portfolioId}
+
+        if loanId in alreadyInvested:
+            print 'WARNING: Your account already has an investment in loan: %d' % loanId
+        print 'https://www.lendingclub.com/browse/addToPortfolio.action?loan_id=%s&loan_amount=%d' % (loanId, int(amt))
+
+        orderStruct['orders'].append(noteOrder)
+        
+    print 'Payload for order'
+    print json.dumps(orderStruct, indent=2)
+
+    payloadFile = outFile
+    if payloadFile is None:
+        payloadFile = 'proposed_order_payload_%s.json' % time.strftime('%Y-%m-%d-%H%M')
+
+    with open(payloadFile, 'w') as f:
+        f.write(json.dumps(orderStruct, indent=2))
+    print 'Wrote proposed order to:', payloadFile
+
+    return orderStruct
+
+
+def ExecuteInvestmentFromPayloadFile(payloadFile):
+    payload = json.loads(open(payloadFile,'r').read())
+    response = LcApiCall('post', 'accounts', 'orders', postPayload=payload)
+    print json.dumps(response, indent=2)
+
 
 
 
@@ -233,3 +308,5 @@ def GetAlreadyInvestedIds():
 #pprint(loanList[0])
 #pprint(ConvertNote2HistVariables(loanList[0]))
 #pprint(LcApiCall('get', 'accounts', 'notes'))
+#pprint(LcApiCall('get', 'accounts', 'portfolios'))
+#print 'Porfolio ID:', GetPortfolioIdByName('Initial_Stats_1119')

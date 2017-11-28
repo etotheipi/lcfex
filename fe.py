@@ -252,12 +252,10 @@ class FeatureExtractor(object):
         else:
             print 'Performance over data set'
 
+        cols = ['SCORE', 'CumulAvgInterest','Dup']
+        cols.extend(self.allDataColNames)
+        cols.extend(['WEIGHT_' + k for k in sortedRulesKeys])
         with open(outFile, 'w') as f:
-            cols = ['SCORE', 'CumulAvgInterest','Dup']
-            cols.extend(self.allDataColNames)
-            cols.extend(['WEIGHT_' + k for k in sortedRulesKeys])
-            
-            
             f.write(','.join(cols) + '\n')
             outMatrix = []
             rowCount,sumEffInt = 0,0
@@ -275,7 +273,7 @@ class FeatureExtractor(object):
                 if len(outMatrix) > 501:
                     break
 
-        return outMatrix
+        return cols, outMatrix
                 
         
 
@@ -287,7 +285,7 @@ class FeatureExtractor(object):
     @staticmethod
     def GetScoringRules():
     
-        def normalizeStdev(stdev, high=2.5, med=1.75, low=1.0):
+        def normalizeStdev(stdev, high=2.0, med=1.25, low=0.5):
             if   stdev >  high: return  1.0
             elif stdev >  med:  return  0.6
             elif stdev >  low:  return  0.3
@@ -307,6 +305,9 @@ class FeatureExtractor(object):
         RequirePosStdev = lambda stdev: (lambda val: None if val < stdev else 0)
         RequireNegStdev = lambda stdev: (lambda val: None if val > -stdev else 0)
         
+        # This is a decent ruleset but too highly correlated with grade/fico.  This
+        # that it alwys tends to find the lowest-interest rate borrowers, instead
+        # of those with the highest returns.
         ScoringRules = \
         {
             # These are filtering rules
@@ -319,11 +320,10 @@ class FeatureExtractor(object):
             # These are weight adjustment rules
             'EmployeeTech':              PreferTrue(     weight=10 ),
             'Purpose_credit_card':       PreferTrue(     weight=10 ),
-            'LogMonthlyIncome':          HigherIsBetter( weight=10 ),
+            'LogMonthlyIncome':          HigherIsBetter( weight=6  ),
             'Purpose_major_purchase':    PreferTrue(     weight=6  ),
             'MonthlyIncome2Pmt':         HigherIsBetter( weight=6  ),
-            'dti':                       LowerIsBetter(  weight=6  ),
-            'inq_last_6mths':            LowerIsBetter(  weight=6  ),
+            'dti':                       LowerIsBetter(  weight=3  ),
             'HomeOwn_mortgage':          PreferTrue(     weight=5  ),
             'EmployeeLeader':            PreferTrue(     weight=3  ),
             'OldestCreditYrs':           HigherIsBetter( weight=3  ),
@@ -339,7 +339,7 @@ class FeatureExtractor(object):
             'NumAccounts_lt_5':          PreferTrue(  weight=1  ),
             'NumAccounts_lt_6':          PreferTrue(  weight=1  ),
 
-            # Smae store for num inquiries.  Almost 0.7% reduced rate below 2 
+            # Smae story for num inquiries.  Almost 0.7% reduced rate below 2 
             'NumInquiries_lt_1':         PreferTrue(  weight=1.5  ),
             'NumInquiries_lt_2':         PreferTrue(  weight=1.5  ),
         }
@@ -420,6 +420,7 @@ passthruFields = \
     'delinq_2yrs', 
     'acc_open_past_24mths', 
     'bc_util', 
+    'pub_rec_bankruptcies',
     'num_actv_bc_tl', 
     'inq_last_6mths', 
     'pub_rec', 
