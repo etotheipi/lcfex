@@ -24,22 +24,23 @@ if __name__ == '__main__':
     allCols, allMtrx = fexTrain.GetAllDataListOfLists()
     avgs, stds, boolList = fexTrain.GetColumnStats()
     ratios, totalCount, sumClass, globalAvg = fexTrain.RunBinaryStats()
-    scoredLoans = fexTrain.ScoreLoans(gradeMin='D1', 
-                                      gradeMax='E5')
+    scoredLoans = fexTrain.ScoreLoans(gradeMin='C5', 
+                                      gradeMax='E2')
 
-    scoredLoans = fexTrain.ScoreLoans(gradeMin='D1', 
-                                      gradeMax='E5', 
+    scoredLoans = fexTrain.ScoreLoans(gradeMin='C5', 
+                                      gradeMax='E2', 
                                       doRandom=True, 
                                       outFile='randomized.csv')
 
+    # This is applying the same rules to that latest download of borrower data
     allLoans = GetLoanListing(getAllAvail=True)
     alreadyInvested = GetAlreadyInvestedIds()
     fexPredict = FeatureExtractor()
     fexPredict.RunFeatureExtractor(allLoans, context='predict')
     colNames,scoreMtrx = fexTrain.ScoreLoans(fexPredict.allDataMatrix, 
                                              outFile='predict_scores.csv', 
-                                             gradeMin='D1',
-                                             gradeMax='E5',
+                                             gradeMin='C5',
+                                             gradeMax='E2',
                                              alreadySet=alreadyInvested)
 
     # This does backtesting of the rules on an another dataset
@@ -51,8 +52,8 @@ if __name__ == '__main__':
                                    gradeMin='E1')
 
     testRandom = fexTrain.ScoreLoans(fexPredict.allDataMatrix, 
-                                     gradeMin='D1', 
-                                     gradeMax='E5', 
+                                     gradeMin='C5', 
+                                     gradeMax='E2', 
                                      doRandom=True, 
                                      outFile='randomized_backtest.csv')
 

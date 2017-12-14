@@ -3,6 +3,7 @@ import os
 import json
 import requests
 import time
+import unicodedata
 from pprint import pprint
 
 MAP_NOTE_VAR_TO_HISTORICAL_DATA = \
