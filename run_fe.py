@@ -1,5 +1,6 @@
 #! /usr/bin/python
 import argparse
+import time
 import csv
 from fe import *
 from rest_api import *
@@ -44,6 +45,7 @@ if __name__ == '__main__':
                                              alreadySet=alreadyInvested)
 
     # This does backtesting of the rules on an another dataset
+    '''
     predictCsv = csv.DictReader(open(args.predictFile, 'r'))
     fexPredict = FeatureExtractor()
     fexPredict.RunFeatureExtractor(predictCsv, context='predict')
@@ -56,6 +58,7 @@ if __name__ == '__main__':
                                      gradeMax='E2', 
                                      doRandom=True, 
                                      outFile='randomized_backtest.csv')
+    '''
 
     if args.executePrice is None:
         doExec = False
@@ -68,5 +71,19 @@ if __name__ == '__main__':
         raise Exception('Note investment price must be a multiple of $25')
 
     idList = GetNewLoanIdsAboveThresh(colNames, scoreMtrx, args.scoreThresh)
+    invPairs = [(lid, execPrice) for lid in idList]
+    orderStruct, payloadFile = CreateInvestOrderPayload(invPairs, args.addToPortfolio)
 
-    CreateInvestOrderPayload([(lid, execPrice) for lid in idList], args.addToPortfolio)
+    waitTime = 1 # min
+    if len(orderStruct['orders']) > 0:
+        print '-'*80
+        print 'Investment will be executed automatically in %d minutes' % waitTime
+        print 'Hit ctrl-C to cancel, or modify the proposed_order_payload file to change the order'
+        print '-'*80
+
+        for i in range(waitTime):
+            print waitTime-i, 'minutes remaining'
+            time.sleep(60)
+
+        print 'Automatic execution...'
+        ExecuteInvestmentFromPayloadFile(payloadFile)

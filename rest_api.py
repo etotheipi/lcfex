@@ -1,9 +1,12 @@
 #! /usr/bin/python
+import argparse
 import os
 import json
 import requests
+import pprint
 import time
 import unicodedata
+import subprocess
 from pprint import pprint
 
 MAP_NOTE_VAR_TO_HISTORICAL_DATA = \
@@ -207,7 +210,7 @@ def LcApiCall(action, resource, subresource, urlExtra=None, postPayload=None):
     headers['Authorization'] = credFile['apiKey']
 
     if action.lower()=='post':
-        headers['Content-type'] = credFile['application/json']
+        headers['Content-type'] = 'application/json'
 
     if resource=='accounts':
         resource = 'accounts/' + credFile['investorId']
@@ -219,9 +222,12 @@ def LcApiCall(action, resource, subresource, urlExtra=None, postPayload=None):
 
     print 'Executing action=%s via URL: %s' % (action, URI)
     if action.lower()=='get':
-        return requests.get(URI, headers=headers).json()
+        reqResult = requests.get(URI, headers=headers)
     elif action.lower()=='post':
-        return requests.post(URI, headers=headers, data=postPayload).json()
+        reqResult = requests.post(URI, headers=headers, data=postPayload)
+
+    #print str(reqResult), str(reqResult.content)
+    return reqResult.json()
 
 def GetLoanListing(getAllAvail=False):
     urlExtra = {'showAll':'true'} if getAllAvail else None
@@ -240,6 +246,12 @@ def GetPortfolioIdByName(pname):
     else:
         print 'Portfolio with name "%s" does not exist' % pname
         return None
+
+
+def GetAvailableCash():
+    flcash = LcApiCall('get', 'accounts', 'availablecash')['availableCash']
+    return int(flcash / 25.0) * 25
+
 
 def GetNewLoanIdsAboveThresh(scoreCols, scoreMtrx, thresh):
     idCol     = scoreCols.index('id')
@@ -268,13 +280,13 @@ def CreateInvestOrderPayload(loanIdAmtPairs, portfolioNameOrId=None, outFile=Non
     investorId = json.load(open(os.path.expanduser('~/.lcapi'), 'r'))['investorId']
     alreadyInvested = GetAlreadyInvestedIds()
         
-    orderStruct = {'aid': investorId,
+    orderStruct = {'aid': int(investorId),
                    'orders': [] }
 
     for loanId,amt in loanIdAmtPairs:
-        noteOrder = { 'loanId':            loanId,
-                      'requestedAmount':   int(amt),
-                      'portfolioId':       portfolioId}
+        noteOrder = { 'loanId': int(loanId), 'requestedAmount': int(amt) }
+        if portfolioId:
+            noteOrder['portfolioId'] = portfolioId
 
         if loanId in alreadyInvested:
             print 'WARNING: Your account already has an investment in loan: %d' % loanId
@@ -293,21 +305,73 @@ def CreateInvestOrderPayload(loanIdAmtPairs, portfolioNameOrId=None, outFile=Non
         f.write(json.dumps(orderStruct, indent=2))
     print 'Wrote proposed order to:', payloadFile
 
-    return orderStruct
+    return orderStruct, payloadFile
 
 
 def ExecuteInvestmentFromPayloadFile(payloadFile):
-    payload = json.loads(open(payloadFile,'r').read())
-    response = LcApiCall('post', 'accounts', 'orders', postPayload=payload)
-    print json.dumps(response, indent=2)
+    allLoans = GetLoanListing(getAllAvail=True)
+
+    initialPayload = json.loads(open(payloadFile,'r').read())
+    finalPayload = {'aid': int(initialPayload['aid']),
+                    'orders': [] }
+
+    for noteReq in initialPayload['orders']:
+        if noteReq['requestedAmount'] == 0:
+            continue
+
+        for loan in allLoans:
+            lid = int(loan['id'])
+            nid = int(noteReq['loanId'])
+
+            if lid == nid:
+                maxInvest = int(float(loan['loan_amnt'])) - int(float(loan['funded_amnt']))
+                print 'Loan ID needs $%d more funding' % maxInvest
+                if maxInvest < noteReq['requestedAmount']:
+                    print 'Could not invest the full amount in', lid, 
+                    print ', lowering from', noteReq['requestedAmount'], 'to', maxInvest
+                    noteReq['requestedAmount'] = maxInvest
+                finalPayload['orders'].append(noteReq)
+                break
+        else:
+            print 'Did not find loan', nid, 'in listing.  Skipping'
+
+    if len(finalPayload['orders']) == 0:
+        print 'No with >0 investment specified'
+        return 
+
+    print 'Payload to POST to execute investment:'
+    print '-'*80
+    pprint(finalPayload)
+    print '-'*80
+
+    with open(payloadFile, 'w') as f:
+        f.write(json.dumps(finalPayload))
+
+    # I never got this working with the LcApiCall, had to switch to Popen curl command
+    #response = LcApiCall('post', 'accounts', 'orders', postPayload=finalPayload)
+    #print json.dumps(response, indent=2)
+
+    curlCmd = '''curl -X POST \
+                      -H "Accept: application/json" \
+                      -H "Authorization: %s" \
+                      -H "Content-type: application/json" \
+                      --data @%s \
+                      https://api.lendingclub.com/api/investor/v1/accounts/%s/orders'''
+    creds = json.load(open(os.path.expanduser('~/.lcapi'), 'r'))
+    curlCmd = curlCmd % (creds['apiKey'], payloadFile, creds['investorId'])
+
+    print 'Executing the following curl command to submit order:'
+    print curlCmd
+    #raw_input('Press <enter> to execute (or ctrl-c to exit) - ')
+
+    subprocess.Popen(curlCmd, shell=True).wait()
 
 
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Read, parse and run FE on csv file")
+    parser.add_argument(dest="command",  help="Command")
+    parser.add_argument(dest="args",  nargs="*", help="Arguments to the command")
+    args = parser.parse_args()
 
-
-#loanList = LcApiCall('GET', 'loans', 'listing')['loans']
-#loanList = LcApiCall('GET', 'loans', 'listing', urlExtra={'showAll':'true'})
-#pprint(loanList[0])
-#pprint(ConvertNote2HistVariables(loanList[0]))
-#pprint(LcApiCall('get', 'accounts', 'notes'))
-#pprint(LcApiCall('get', 'accounts', 'portfolios'))
-#print 'Porfolio ID:', GetPortfolioIdByName('Initial_Stats_1119')
+    if args.command.lower() == 'execute' and len(args.args)==1:
+        ExecuteInvestmentFromPayloadFile(args.args[0])
