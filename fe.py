@@ -499,9 +499,14 @@ def fexmulti_purpose(row):
 
 @FexMethod('OldestCreditYrs')
 def fex_oldest_credit_line(row):
-    dtOrig = dateParser.parse(row['earliest_cr_line']).replace(tzinfo=None)
-    dtNow  = datetime.now().replace(tzinfo=None)
-    return min((dtNow - dtOrig).days / 365.0, 20)
+    try:
+        removeFebDate = row['earliest_cr_line'].replace('Feb-','Jan-')
+        dtOrig = dateParser.parse(removeFebDate).replace(tzinfo=None)
+        dtNow  = datetime.now().replace(tzinfo=None)
+        return min((dtNow - dtOrig).days / 365.0, 20)
+    except Exception as e:
+        print 'Error parsing date: %s (%s)' % (row['earliest_cr_line'], str(e))
+        return 0
 
 @FexMethod('VerifyStatus')
 def fex_verify_stat(row):
@@ -649,5 +654,8 @@ def getOtherCols(row):
 @OtherDataMethod('ApproxIntRate')
 def getApproxFinalIntRate(row):
     # Conversion from totalInterest/principal to annualized net return is 1.6-1.7
-    return (float(row['total_pymnt']) / float(row['funded_amnt']) - 1) / 1.65
-
+    try:
+        return (float(row['total_pymnt']) / float(row['funded_amnt']) - 1) / 1.65
+    except Exception as e:
+        print 'Error:', str(e)
+        return 0

@@ -265,6 +265,7 @@ def GetNewLoanIdsAboveThresh(scoreCols, scoreMtrx, thresh):
             continue 
 
         if float(scoreRow[scoreCol]) >= thresh:
+            print 'Investment passes threshold:', scoreRow[idCol], scoreRow[scoreCol]
             idList.append(scoreRow[idCol])
 
     return idList
